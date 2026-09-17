@@ -1,0 +1,9 @@
+services:
+  mail-agent:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./mail_agent.db:/app/mail_agent.db
