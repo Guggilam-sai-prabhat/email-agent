@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from app.auth.gmail_auth import validate_stored_token_scopes
 from app.config import settings
 from app.logging_config import configure_logging
 
@@ -12,6 +13,7 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    validate_stored_token_scopes()
     log.info("app_startup", environment=settings.app_env)
     yield
 

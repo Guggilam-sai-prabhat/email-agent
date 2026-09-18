@@ -5,7 +5,9 @@ messages, summarizes them with a locally running Qwen3 1.7B model via Ollama,
 and extracts action items. Read-only: it never sends, deletes, forwards,
 labels, modifies, or replies to email.
 
-This is the foundation phase — no Gmail or model integration yet.
+This is the foundation phase — no model integration yet. Gmail read access
+uses OAuth with the single `gmail.readonly` scope; see
+[docs/gmail-oauth-setup.md](docs/gmail-oauth-setup.md) for setup.
 
 ## Local development
 
