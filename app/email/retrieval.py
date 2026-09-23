@@ -194,14 +194,22 @@ class GmailRetrievalService:
         self._client = client or GmailReadOnlyClient()
 
     def list_candidate_message_ids(self) -> list[str]:
-        """IDs of messages eligible for analysis: labeled, recent, capped per run."""
+        """IDs of messages eligible for analysis: recent, capped per run, and
+        filtered to gmail_allowed_label when one is configured. With no label
+        configured, falls back to the most recent inbox messages instead of
+        requiring the operator to create and apply a label first.
+        """
         cutoff = datetime.now(timezone.utc) - timedelta(days=settings.email_max_age_days)
-        query = f'label:"{settings.gmail_allowed_label}" after:{int(cutoff.timestamp())}'
+        query = f"after:{int(cutoff.timestamp())}"
+        max_results = settings.email_max_messages_per_run
+        if settings.gmail_allowed_label:
+            query = f'label:"{settings.gmail_allowed_label}" {query}'
+        else:
+            query = f"in:inbox {query}"
+            max_results = settings.gmail_unlabeled_message_limit
         try:
             return _with_retry(
-                lambda: self._client.list_message_ids(
-                    query=query, max_results=settings.email_max_messages_per_run
-                ),
+                lambda: self._client.list_message_ids(query=query, max_results=max_results),
                 log_event="gmail_list_retry",
             )
         except HttpError as exc:

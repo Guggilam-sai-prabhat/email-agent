@@ -25,7 +25,16 @@ class Settings(BaseSettings):
 
     gmail_credentials_file: str = "credentials.json"
     gmail_token_file: str = "token.json"
-    gmail_allowed_label: str = "Agent-Summary"
+    # Empty/unset means "no label filter" — the agent falls back to the most
+    # recent inbox messages (see gmail_unlabeled_message_limit) instead of
+    # requiring the operator to create and apply a specific Gmail label first.
+    gmail_allowed_label: str = ""
+    # Cap used only when gmail_allowed_label is unset, since "most recent
+    # inbox messages" has no label to bound it the way a labeled query does.
+    gmail_unlabeled_message_limit: int = 10
+    # Per-request socket timeout for Gmail API calls. Without this, a stalled
+    # connection can block a processing run's background thread forever.
+    gmail_request_timeout_seconds: int = 30
 
     email_max_age_days: int = 7
     email_max_messages_per_run: int = 50
@@ -39,6 +48,9 @@ class Settings(BaseSettings):
     # How long a message may stay claimed (PROCESSING) before another worker may
     # treat the claim as stale (e.g. after a crash) and reclaim it.
     processing_timeout_seconds: int = 600
+    # How long a whole run may stay RUNNING before the API treats it as stuck
+    # (crashed thread, hung network call) and marks it FAILED.
+    run_timeout_seconds: int = 900
 
     @field_validator(
         "app_port",
@@ -49,6 +61,9 @@ class Settings(BaseSettings):
         "schedule_interval_minutes",
         "max_processing_attempts",
         "processing_timeout_seconds",
+        "run_timeout_seconds",
+        "gmail_request_timeout_seconds",
+        "gmail_unlabeled_message_limit",
     )
     @classmethod
     def _must_be_positive(cls, value: int, info) -> int:

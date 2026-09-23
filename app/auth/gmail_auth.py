@@ -118,6 +118,11 @@ def get_credentials() -> Credentials:
     return creds
 
 
+def has_stored_token() -> bool:
+    """Non-interactive check for whether Gmail authorization has been completed."""
+    return _token_path().exists()
+
+
 def validate_stored_token_scopes() -> None:
     """Startup check: if a token is already stored, fail closed on bad scopes.
 

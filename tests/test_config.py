@@ -11,7 +11,8 @@ def test_defaults_are_safe(monkeypatch):
     assert settings.ollama_base_url == "http://127.0.0.1:11434"
     assert settings.ollama_model == "qwen3:1.7b"
     assert settings.ollama_context_size == 8192
-    assert settings.gmail_allowed_label == "Agent-Summary"
+    assert settings.gmail_allowed_label == ""
+    assert settings.gmail_unlabeled_message_limit == 10
     assert settings.email_max_age_days == 7
     assert settings.email_max_messages_per_run == 50
     assert settings.include_attachments is False

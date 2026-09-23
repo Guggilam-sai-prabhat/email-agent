@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from app.config import settings
 from app.email.gmail_client import GmailReadOnlyClient
 
 
@@ -15,7 +16,19 @@ def test_client_builds_readonly_gmail_service():
     with patch("app.email.gmail_client.build") as mock_build:
         fake_creds = MagicMock()
         GmailReadOnlyClient(credentials=fake_creds)
-        mock_build.assert_called_once_with("gmail", "v1", credentials=fake_creds, cache_discovery=False)
+        mock_build.assert_called_once()
+        args, kwargs = mock_build.call_args
+        assert args == ("gmail", "v1")
+        assert kwargs["cache_discovery"] is False
+        assert "credentials" not in kwargs  # passed via http= instead, so a request timeout can be set
+
+
+def test_client_applies_a_request_timeout_so_a_stalled_call_cannot_hang_forever():
+    fake_creds = MagicMock()
+    with patch("app.email.gmail_client.build") as mock_build:
+        GmailReadOnlyClient(credentials=fake_creds)
+        http = mock_build.call_args.kwargs["http"]
+        assert http.http.timeout == settings.gmail_request_timeout_seconds
 
 
 def test_list_message_ids_returns_ids():

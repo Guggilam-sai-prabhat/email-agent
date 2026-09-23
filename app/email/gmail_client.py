@@ -7,10 +7,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import httplib2
 from google.oauth2.credentials import Credentials
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 
 from app.auth.gmail_auth import get_credentials
+from app.config import settings
 
 
 class GmailReadOnlyClient:
@@ -22,7 +25,10 @@ class GmailReadOnlyClient:
 
     def __init__(self, credentials: Credentials | None = None) -> None:
         self._credentials = credentials or get_credentials()
-        self._service = build("gmail", "v1", credentials=self._credentials, cache_discovery=False)
+        # httplib2 has no timeout by default, so a stalled connection would
+        # otherwise block the calling thread (a processing run) forever.
+        http = AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=settings.gmail_request_timeout_seconds))
+        self._service = build("gmail", "v1", http=http, cache_discovery=False)
 
     def list_message_ids(self, query: str = "", max_results: int = 50) -> list[str]:
         response = (

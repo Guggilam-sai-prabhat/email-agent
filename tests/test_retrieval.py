@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from googleapiclient.errors import HttpError
 
+from app.config import settings
 from app.email.retrieval import EmailDocument, GmailRetrievalService
 from tests.fixtures.gmail_payloads import (
     AUTOMATED_MESSAGE,
@@ -26,6 +27,7 @@ def _http_error(status: int) -> HttpError:
 
 
 def test_list_candidate_message_ids_scopes_query_to_label_and_age(monkeypatch):
+    monkeypatch.setattr(settings, "gmail_allowed_label", "Agent-Summary")
     service, mock_client = _service_with_mock_client()
     mock_client.list_message_ids.return_value = ["fake-msg-1"]
 
@@ -36,6 +38,27 @@ def test_list_candidate_message_ids_scopes_query_to_label_and_age(monkeypatch):
     assert 'label:"Agent-Summary"' in kwargs["query"]
     assert "after:" in kwargs["query"]
     assert kwargs["max_results"] == 50
+
+
+def test_list_candidate_message_ids_falls_back_to_recent_inbox_without_a_label(monkeypatch):
+    """With no label configured, the agent should not require the operator to
+    create and apply a Gmail label before it can find any messages — it falls
+    back to the most recent inbox messages, capped by
+    gmail_unlabeled_message_limit rather than the general per-run cap.
+    """
+    monkeypatch.setattr(settings, "gmail_allowed_label", "")
+    monkeypatch.setattr(settings, "gmail_unlabeled_message_limit", 10)
+    service, mock_client = _service_with_mock_client()
+    mock_client.list_message_ids.return_value = ["fake-msg-1"]
+
+    ids = service.list_candidate_message_ids()
+
+    assert ids == ["fake-msg-1"]
+    _, kwargs = mock_client.list_message_ids.call_args
+    assert "label:" not in kwargs["query"]
+    assert "in:inbox" in kwargs["query"]
+    assert "after:" in kwargs["query"]
+    assert kwargs["max_results"] == 10
 
 
 def test_get_message_for_analysis_returns_email_document():
