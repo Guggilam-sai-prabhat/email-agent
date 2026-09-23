@@ -42,9 +42,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database.models import (
     EmailAnalysis,
+    EmailReview,
     ProcessedMessage,
     ProcessingRun,
     ProcessingStatus,
+    ReviewAuditLog,
+    ReviewStatus,
     RunStatus,
 )
 
@@ -207,6 +210,80 @@ class EmailAnalysisRepository:
         self.session.add(analysis)
         self.session.flush()
         return analysis
+
+
+class InvalidReviewTransitionError(Exception):
+    """Raised when a review status change isn't allowed from the current status."""
+
+
+# Allowed review_status transitions. pending is the only starting state (set
+# implicitly by get_or_create); every other transition must be listed here.
+_ALLOWED_REVIEW_TRANSITIONS: dict[ReviewStatus, set[ReviewStatus]] = {
+    ReviewStatus.PENDING: {ReviewStatus.REVIEWED, ReviewStatus.COMPLETED, ReviewStatus.DISMISSED},
+    ReviewStatus.REVIEWED: {ReviewStatus.COMPLETED, ReviewStatus.DISMISSED},
+    ReviewStatus.COMPLETED: set(),
+    ReviewStatus.DISMISSED: set(),
+}
+
+_STATUS_TIMESTAMP_FIELD: dict[ReviewStatus, str] = {
+    ReviewStatus.REVIEWED: "reviewed_at",
+    ReviewStatus.COMPLETED: "completed_at",
+    ReviewStatus.DISMISSED: "dismissed_at",
+}
+
+
+class EmailReviewRepository:
+    """User review decisions. Every write here is local-only and driven by an
+    explicit user API request — nothing in this class is reachable from model
+    output or from Gmail sync code. See EmailReview/ReviewAuditLog in models.py.
+    """
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_for_analysis(self, email_analysis_id: str) -> EmailReview | None:
+        stmt = select(EmailReview).where(EmailReview.email_analysis_id == email_analysis_id)
+        return self.session.scalars(stmt).first()
+
+    def get_or_create(self, email_analysis_id: str) -> EmailReview:
+        review = self.get_for_analysis(email_analysis_id)
+        if review is not None:
+            return review
+        review = EmailReview(email_analysis_id=email_analysis_id, review_status=ReviewStatus.PENDING)
+        self.session.add(review)
+        self.session.flush()
+        return review
+
+    def set_status(self, review: EmailReview, new_status: ReviewStatus, *, now: datetime | None = None) -> EmailReview:
+        """Transition review_status, stamping the matching *_at field and writing
+        an audit log entry. Raises InvalidReviewTransitionError if the transition
+        isn't allowed from the review's current status.
+        """
+        current = ReviewStatus(review.review_status)
+        if new_status not in _ALLOWED_REVIEW_TRANSITIONS.get(current, set()):
+            raise InvalidReviewTransitionError(f"cannot transition review from {current.value!r} to {new_status.value!r}")
+
+        now = now or datetime.now(timezone.utc)
+        review.review_status = new_status
+        timestamp_field = _STATUS_TIMESTAMP_FIELD.get(new_status)
+        if timestamp_field is not None:
+            setattr(review, timestamp_field, now)
+
+        self.session.add(
+            ReviewAuditLog(
+                email_analysis_id=review.email_analysis_id,
+                previous_status=current,
+                new_status=new_status,
+            )
+        )
+        self.session.flush()
+        return review
+
+    def set_note(self, review: EmailReview, note: str | None) -> EmailReview:
+        """Sets the private local note. Independent of review_status transitions."""
+        review.user_note = note
+        self.session.flush()
+        return review
 
 
 class ProcessingRunRepository:

@@ -80,6 +80,13 @@ class RunStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class ReviewStatus(str, enum.Enum):
+    PENDING = "pending"
+    REVIEWED = "reviewed"
+    COMPLETED = "completed"
+    DISMISSED = "dismissed"
+
+
 class ProcessedMessage(Base):
     __tablename__ = "processed_messages"
     __table_args__ = (
@@ -137,8 +144,10 @@ class EmailAnalysis(Base):
     )
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     priority: Mapped[Priority] = mapped_column(String(10), nullable=False)
+    priority_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     action_required: Mapped[bool] = mapped_column(nullable=False)
     suggested_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(20), nullable=True)
     explicit_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     confidence: Mapped[float] = mapped_column(nullable=False)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -146,6 +155,58 @@ class EmailAnalysis(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=_utcnow)
 
     processed_message: Mapped["ProcessedMessage"] = relationship(back_populates="analysis")
+    review: Mapped["EmailReview | None"] = relationship(
+        back_populates="analysis", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class EmailReview(Base):
+    """User's review decision for one EmailAnalysis. Kept separate from
+    EmailAnalysis so the model's original recommendation is never mutated by
+    a user action — see ReviewAuditLog for the change history. Local only:
+    nothing here is ever written back to Gmail.
+    """
+
+    __tablename__ = "email_reviews"
+    __table_args__ = (
+        UniqueConstraint("email_analysis_id", name="uq_email_reviews_email_analysis_id"),
+        CheckConstraint(
+            "review_status IN ('pending', 'reviewed', 'completed', 'dismissed')",
+            name="ck_email_reviews_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email_analysis_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("email_analyses.id", ondelete="CASCADE"), nullable=False
+    )
+    review_status: Mapped[ReviewStatus] = mapped_column(
+        String(20), nullable=False, default=ReviewStatus.PENDING
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    user_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+    analysis: Mapped["EmailAnalysis"] = relationship(back_populates="review")
+
+
+class ReviewAuditLog(Base):
+    """Append-only local audit trail of review status changes. Never sent to Gmail."""
+
+    __tablename__ = "review_audit_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email_analysis_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("email_analyses.id", ondelete="CASCADE"), nullable=False
+    )
+    previous_status: Mapped[ReviewStatus | None] = mapped_column(String(20), nullable=True)
+    new_status: Mapped[ReviewStatus] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=_utcnow)
 
 
 class ProcessingRun(Base):
