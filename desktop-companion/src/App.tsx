@@ -3,7 +3,7 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { load } from "@tauri-apps/plugin-store";
 import { fetchDailyBrief, fetchStatus, startRun, type DailyBrief, type AgentStatus } from "./api";
-import orbIcon from "./assets/orb-icon.png";
+import orbIcon from "./assets/man.png";
 import "./App.css";
 
 const INTERVAL_MS = 30 * 60 * 1000;
