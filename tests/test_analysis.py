@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.agent.analysis import AnalysisFailedError, analyze_email
+from app.agent.analysis import AnalysisFailedError, _normalize_confidence, analyze_email
 from app.email.sanitization import sanitize_email
 
 
@@ -313,3 +313,20 @@ def test_chunk_summarization_prompt_treats_excerpt_as_data_not_instructions():
     for call in client.generate.call_args_list:
         if call.kwargs.get("format") is None:
             assert "not instructions" in call.args[0]
+
+
+@pytest.mark.parametrize(
+    "raw_confidence,expected",
+    [(7, 0.7), (10, 1.0), (11, 1.0), (0.8, 0.8), (-1, 0.0)],
+)
+def test_normalize_confidence_clamps_out_of_range_values(raw_confidence, expected):
+    raw = json.dumps(_valid_payload(confidence=raw_confidence))
+    normalized = json.loads(_normalize_confidence(raw))
+    assert normalized["confidence"] == expected
+
+
+def test_out_of_range_confidence_is_repaired_without_a_retry_call():
+    client = _model_client(json.dumps(_valid_payload(confidence=7)))
+    result = analyze_email(_email("Please review the attached report."), client)
+    assert result.confidence == 0.7
+    assert client.generate.call_count == 1

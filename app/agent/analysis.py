@@ -90,6 +90,23 @@ class AnalysisFailedError(RuntimeError):
     """Raised when the model output fails validation twice."""
 
 
+def _normalize_confidence(raw: str) -> str:
+    """Clamp an out-of-range `confidence` (e.g. the model emitting 7 instead
+    of 0.7) into [0, 1] before schema validation, instead of burning the one
+    repair retry on a field the model consistently gets wrong on a 1.7B model."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if isinstance(data, dict) and isinstance(data.get("confidence"), (int, float)):
+        value = data["confidence"]
+        if value > 1:
+            value = value / 10 if value <= 10 else 1.0
+        data["confidence"] = max(0.0, min(1.0, value))
+        return json.dumps(data)
+    return raw
+
+
 def _strip_boilerplate(text: str) -> str:
     """Drop signature blocks and legal disclaimers before any length or
     chunking decision — they cost tokens without adding information."""
@@ -179,7 +196,7 @@ def analyze_email(email: SanitizedEmail, model_client: ModelClient) -> EmailAnal
             email = replace(email, current_message=cleaned_current[:max_chars], truncated=True)
 
     def _finish(raw: str) -> EmailAnalysisResult:
-        result = EmailAnalysisResult.model_validate_json(raw)
+        result = EmailAnalysisResult.model_validate_json(_normalize_confidence(raw))
         if email.truncated:
             note = (
                 "Long thread history was summarized in chunks; some detail may be lost."

@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     scheduler_enabled: bool = False
     schedule_interval_minutes: int = 30
+    # Qwen3 1.7B runs locally in Ollama; concurrent inference just contends for
+    # the same process, so this defaults to 1, not "however many jobs fire".
+    model_max_concurrency: int = 1
 
     max_processing_attempts: int = 3
     # How long a message may stay claimed (PROCESSING) before another worker may
@@ -64,6 +67,7 @@ class Settings(BaseSettings):
         "run_timeout_seconds",
         "gmail_request_timeout_seconds",
         "gmail_unlabeled_message_limit",
+        "model_max_concurrency",
     )
     @classmethod
     def _must_be_positive(cls, value: int, info) -> int:
