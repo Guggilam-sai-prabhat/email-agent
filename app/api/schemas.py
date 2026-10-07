@@ -123,3 +123,27 @@ class ReprocessResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: str
+
+
+class BriefItemResponse(BaseModel):
+    message_id: str
+    subject: str
+    summary: str
+    priority: Priority
+    category: Category | None = None
+    explicit_deadline: datetime | None
+    is_overdue: bool
+
+
+class DailyBriefResponse(BaseModel):
+    """Local-dashboard-only view over already-validated analyses. Never sent by
+    email or pushed as a notification. `suggested_order` is a deterministic
+    ordering fact (priority + deadline), not a model recommendation."""
+
+    generated_at: datetime
+    urgent: list[BriefItemResponse]
+    deadlines: list[BriefItemResponse]
+    needs_reply: list[BriefItemResponse]
+    other_action_items: list[BriefItemResponse]
+    informational: list[BriefItemResponse]
+    suggested_order: list[BriefItemResponse]

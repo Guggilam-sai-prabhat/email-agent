@@ -10,3 +10,4 @@ token.json
 *.egg-info/
 build/
 dist/
+desktop-companion/src/assets/man.png

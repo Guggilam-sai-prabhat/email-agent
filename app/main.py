@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
@@ -15,6 +16,7 @@ from app.api.routes import (
 from app.auth.gmail_auth import validate_stored_token_scopes
 from app.config import settings
 from app.logging_config import configure_logging
+from app.scheduler import shutdown_scheduler, start_scheduler
 
 configure_logging()
 log = structlog.get_logger()
@@ -24,7 +26,11 @@ log = structlog.get_logger()
 async def lifespan(_app: FastAPI):
     validate_stored_token_scopes()
     log.info("app_startup", environment=settings.app_env)
-    yield
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 app = FastAPI(
@@ -36,6 +42,17 @@ app = FastAPI(
         "See README.md for the bind-address guarantees."
     ),
 )
+
+# Lets the desktop companion's webview (served from http://localhost:1420 in
+# dev, tauri://localhost in a packaged build) call this localhost-only API.
+# No authentication exists either way, so this doesn't widen what's exposed.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^(tauri://localhost|https?://(localhost|127\.0\.0\.1)(:\d+)?)$",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
 
 

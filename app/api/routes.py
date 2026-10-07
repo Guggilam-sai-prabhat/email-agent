@@ -4,6 +4,7 @@ and app/config.py for ALLOW_PUBLIC_BIND. No authentication (see README).
 """
 from __future__ import annotations
 
+import dataclasses
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,7 @@ from app.agent.model_client import ModelNotInstalledError, ModelUnavailableError
 from app.api.deps import get_db
 from app.api.schemas import (
     AgentStatusResponse,
+    DailyBriefResponse,
     ReprocessResponse,
     ReviewInfo,
     ReviewNoteUpdateRequest,
@@ -38,6 +40,7 @@ from app.database.repository import (
 )
 from app.database.session import get_session
 from app.email.retrieval import GmailRetrievalService, MessageUnavailableError
+from app.services.daily_brief import build_daily_brief
 from app.services.mail_processing import MailProcessingService, _sanitized_email_from_document
 
 log = structlog.get_logger()
@@ -184,6 +187,15 @@ def list_summaries(
         )
 
     return SummaryPage(items=items, total=total_count, limit=filters.limit, offset=filters.offset)
+
+
+@router.get("/daily-brief", response_model=DailyBriefResponse)
+def get_daily_brief(db: Session = Depends(get_db)) -> DailyBriefResponse:
+    """Local-dashboard-only aggregation of validated analyses. Never emailed
+    or pushed as a notification (see app/services/daily_brief.py)."""
+    analyses = db.execute(select(EmailAnalysis).join(ProcessedMessage)).scalars().all()
+    brief = build_daily_brief(list(analyses))
+    return DailyBriefResponse(**dataclasses.asdict(brief))
 
 
 @router.get("/summaries/{summary_id}", response_model=SummaryDetail)
