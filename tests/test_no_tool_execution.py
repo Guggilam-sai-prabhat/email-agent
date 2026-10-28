@@ -38,7 +38,7 @@ def test_gmail_client_exposes_no_write_methods():
         name for name, _ in inspect.getmembers(GmailReadOnlyClient, predicate=inspect.isfunction)
         if not name.startswith("_")
     }
-    assert public_methods == {"list_message_ids", "get_message"}
+    assert public_methods == {"list_message_ids", "get_message", "get_thread"}
 
 
 def test_gmail_retrieval_service_exposes_no_write_methods():
@@ -46,7 +46,11 @@ def test_gmail_retrieval_service_exposes_no_write_methods():
         name for name, _ in inspect.getmembers(GmailRetrievalService, predicate=inspect.isfunction)
         if not name.startswith("_")
     }
-    assert public_methods == {"list_candidate_message_ids", "get_message_for_analysis"}
+    assert public_methods == {
+        "list_candidate_message_ids",
+        "get_message_for_analysis",
+        "has_been_replied_to",
+    }
 
 
 def test_suggested_action_is_not_a_persisted_executable_field():

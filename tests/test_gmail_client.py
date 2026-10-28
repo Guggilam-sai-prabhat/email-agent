@@ -55,7 +55,7 @@ def test_client_exposes_no_write_methods():
     forbidden = {"send", "delete", "trash", "modify", "batchModify", "batchDelete", "insert", "import_"}
     public_methods = {name for name in dir(GmailReadOnlyClient) if not name.startswith("_")}
     assert public_methods & forbidden == set()
-    assert public_methods == {"list_message_ids", "get_message"}
+    assert public_methods == {"list_message_ids", "get_message", "get_thread"}
 
 
 def test_no_real_network_call_is_made():

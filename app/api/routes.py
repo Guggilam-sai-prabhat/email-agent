@@ -19,6 +19,7 @@ from app.api.deps import get_db
 from app.api.schemas import (
     AgentStatusResponse,
     DailyBriefResponse,
+    OpenItemResponse,
     ReprocessResponse,
     ReviewInfo,
     ReviewNoteUpdateRequest,
@@ -41,6 +42,7 @@ from app.database.repository import (
 from app.database.session import get_session
 from app.email.retrieval import GmailRetrievalService, MessageUnavailableError
 from app.services.daily_brief import build_daily_brief
+from app.services.open_items import build_open_items
 from app.services.mail_processing import MailProcessingService, _sanitized_email_from_document
 
 log = structlog.get_logger()
@@ -196,6 +198,35 @@ def get_daily_brief(db: Session = Depends(get_db)) -> DailyBriefResponse:
     analyses = db.execute(select(EmailAnalysis).join(ProcessedMessage)).scalars().all()
     brief = build_daily_brief(list(analyses))
     return DailyBriefResponse(**dataclasses.asdict(brief))
+
+
+@router.get("/open-items", response_model=list[OpenItemResponse])
+def get_open_items(db: Session = Depends(get_db)) -> list[OpenItemResponse]:
+    """Requests still awaiting a reply (Gmail SENT-label check, Phase 1),
+    with age and nag_level. Local-dashboard-only, read-only against Gmail."""
+    analyses = db.execute(select(EmailAnalysis).join(ProcessedMessage)).scalars().all()
+    candidates = [a for a in analyses if a.category == "request"]
+
+    retrieval = GmailRetrievalService()
+    replied_message_ids = {
+        a.processed_message.id
+        for a in candidates
+        if a.processed_message.external_thread_id
+        and retrieval.has_been_replied_to(a.processed_message.external_thread_id, after=a.processed_message.received_at)
+    }
+
+    items = build_open_items(candidates, replied_message_ids=replied_message_ids)
+    return [
+        OpenItemResponse(
+            message_id=item.message_id,
+            subject=item.subject,
+            sender_address=item.sender_address,
+            received_at=item.received_at,
+            age_hours=item.age.total_seconds() / 3600,
+            nag_level=item.nag_level,
+        )
+        for item in items
+    ]
 
 
 @router.get("/summaries/{summary_id}", response_model=SummaryDetail)

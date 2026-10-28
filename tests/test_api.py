@@ -283,6 +283,53 @@ def test_get_run_not_found_returns_safe_404(client, db):
     assert "Traceback" not in body["detail"]
 
 
+def test_open_items_excludes_replied_request(client, db, monkeypatch):
+    from app.api import routes as api_routes
+
+    _seed_message_with_analysis(db, external_message_id="msg-1")
+    gmail_mock = MagicMock()
+    gmail_mock.has_been_replied_to.return_value = True
+    monkeypatch.setattr(api_routes, "GmailRetrievalService", lambda: gmail_mock)
+
+    response = client.get("/api/v1/open-items")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_open_items_includes_unreplied_request_with_nag_level(client, db, monkeypatch):
+    from app.api import routes as api_routes
+
+    _seed_message_with_analysis(
+        db, external_message_id="msg-1", received_at=datetime.now(timezone.utc) - timedelta(hours=30)
+    )
+    gmail_mock = MagicMock()
+    gmail_mock.has_been_replied_to.return_value = False
+    monkeypatch.setattr(api_routes, "GmailRetrievalService", lambda: gmail_mock)
+
+    response = client.get("/api/v1/open-items")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["nag_level"] == "persistent"
+    gmail_mock.has_been_replied_to.assert_called_once()
+
+
+def test_open_items_excludes_non_request_category(client, db, monkeypatch):
+    from app.api import routes as api_routes
+
+    _seed_message_with_analysis(db, category="information")
+    gmail_mock = MagicMock()
+    monkeypatch.setattr(api_routes, "GmailRetrievalService", lambda: gmail_mock)
+
+    response = client.get("/api/v1/open-items")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    gmail_mock.has_been_replied_to.assert_not_called()
+
+
 def test_list_summaries_includes_suggested_action(client, db):
     _seed_message_with_analysis(db)
     response = client.get("/api/v1/summaries")

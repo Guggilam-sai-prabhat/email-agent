@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -199,7 +200,11 @@ def test_service_exposes_only_the_narrow_interface():
     public_methods = {
         name for name in dir(GmailRetrievalService) if not name.startswith("_")
     }
-    assert public_methods == {"list_candidate_message_ids", "get_message_for_analysis"}
+    assert public_methods == {
+        "list_candidate_message_ids",
+        "get_message_for_analysis",
+        "has_been_replied_to",
+    }
 
 
 def test_service_does_not_expose_underlying_gmail_service():
@@ -214,3 +219,51 @@ def test_service_does_not_expose_underlying_gmail_service():
 )
 def test_no_mutating_methods_exist_on_retrieval_service(attr):
     assert not hasattr(GmailRetrievalService, attr)
+
+
+def _thread_message(label_ids, date_header):
+    return {
+        "labelIds": label_ids,
+        "payload": {"headers": [{"name": "Date", "value": date_header}]},
+    }
+
+
+def test_has_been_replied_to_true_when_sent_message_is_after_cutoff():
+    service, mock_client = _service_with_mock_client()
+    mock_client.get_thread.return_value = {
+        "messages": [
+            _thread_message(["INBOX"], "Mon, 1 Jan 2024 10:00:00 +0000"),
+            _thread_message(["SENT"], "Mon, 1 Jan 2024 12:00:00 +0000"),
+        ]
+    }
+    cutoff = datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc)
+
+    assert service.has_been_replied_to("fake-thread-1", after=cutoff) is True
+    mock_client.get_thread.assert_called_once_with("fake-thread-1")
+
+
+def test_has_been_replied_to_false_when_sent_message_is_before_cutoff():
+    service, mock_client = _service_with_mock_client()
+    mock_client.get_thread.return_value = {
+        "messages": [_thread_message(["SENT"], "Mon, 1 Jan 2024 09:00:00 +0000")]
+    }
+    cutoff = datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc)
+
+    assert service.has_been_replied_to("fake-thread-1", after=cutoff) is False
+
+
+def test_has_been_replied_to_false_with_no_sent_messages():
+    service, mock_client = _service_with_mock_client()
+    mock_client.get_thread.return_value = {
+        "messages": [_thread_message(["INBOX"], "Mon, 1 Jan 2024 12:00:00 +0000")]
+    }
+
+    assert service.has_been_replied_to("fake-thread-1", after=datetime(2024, 1, 1, tzinfo=timezone.utc)) is False
+
+
+def test_has_been_replied_to_false_on_persistent_error(monkeypatch):
+    monkeypatch.setattr("app.email.retrieval.time.sleep", lambda _: None)
+    service, mock_client = _service_with_mock_client()
+    mock_client.get_thread.side_effect = _http_error(500)
+
+    assert service.has_been_replied_to("fake-thread-1", after=datetime(2024, 1, 1, tzinfo=timezone.utc)) is False

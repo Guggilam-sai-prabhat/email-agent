@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.database.models import Priority, ReviewStatus, RunStatus
+from app.services.open_items import NagLevel
 
 Category = Literal["information", "request", "approval", "meeting", "alert", "invoice", "other"]
 
@@ -147,3 +148,12 @@ class DailyBriefResponse(BaseModel):
     other_action_items: list[BriefItemResponse]
     informational: list[BriefItemResponse]
     suggested_order: list[BriefItemResponse]
+
+
+class OpenItemResponse(BaseModel):
+    message_id: str
+    subject: str
+    sender_address: str
+    received_at: datetime
+    age_hours: float
+    nag_level: NagLevel

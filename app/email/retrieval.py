@@ -227,3 +227,24 @@ class GmailRetrievalService:
             log.error("gmail_get_failed", message_id=message_id, status=getattr(exc, "status_code", None))
             return None
         return _to_email_document(raw_message, settings.email_max_body_characters)
+
+    def has_been_replied_to(self, thread_id: str, after: datetime) -> bool:
+        """Whether the thread already contains a message sent by the account
+        owner (Gmail's SENT label) with a Date header after `after`. Read-only:
+        uses threads().get, no new scopes.
+        """
+        try:
+            thread = _with_retry(
+                lambda: self._client.get_thread(thread_id),
+                log_event="gmail_thread_get_retry",
+            )
+        except HttpError as exc:
+            log.error("gmail_thread_get_failed", thread_id=thread_id, status=getattr(exc, "status_code", None))
+            return False
+        for message in thread.get("messages", []):
+            if "SENT" not in (message.get("labelIds") or []):
+                continue
+            sent_at = _parse_date(_header(message.get("payload", {}).get("headers", []) or [], "Date"))
+            if sent_at and sent_at > after:
+                return True
+        return False

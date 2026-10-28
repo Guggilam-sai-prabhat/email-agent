@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # the same process, so this defaults to 1, not "however many jobs fire".
     model_max_concurrency: int = 1
 
+    # Age thresholds (hours) for an open request item's nag_level: below
+    # nag_noticeable_after_hours is "quiet", below nag_persistent_after_hours
+    # is "noticeable", at/above it is "persistent".
+    nag_noticeable_after_hours: int = 4
+    nag_persistent_after_hours: int = 24
+
     max_processing_attempts: int = 3
     # How long a message may stay claimed (PROCESSING) before another worker may
     # treat the claim as stale (e.g. after a crash) and reclaim it.
@@ -68,12 +74,20 @@ class Settings(BaseSettings):
         "gmail_request_timeout_seconds",
         "gmail_unlabeled_message_limit",
         "model_max_concurrency",
+        "nag_noticeable_after_hours",
+        "nag_persistent_after_hours",
     )
     @classmethod
     def _must_be_positive(cls, value: int, info) -> int:
         if value <= 0:
             raise ValueError(f"{info.field_name} must be a positive integer")
         return value
+
+    @model_validator(mode="after")
+    def _nag_thresholds_ordered(self) -> "Settings":
+        if self.nag_persistent_after_hours <= self.nag_noticeable_after_hours:
+            raise ValueError("NAG_PERSISTENT_AFTER_HOURS must be greater than NAG_NOTICEABLE_AFTER_HOURS")
+        return self
 
     @field_validator("include_attachments")
     @classmethod

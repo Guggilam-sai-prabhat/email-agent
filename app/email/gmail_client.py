@@ -19,8 +19,9 @@ from app.config import settings
 class GmailReadOnlyClient:
     """Thin wrapper around the Gmail API's read-only surface.
 
-    Intentionally exposes only list/get for messages. Do not add send, delete,
-    forward, draft, label-modification, archive, or mark-as-read methods here.
+    Intentionally exposes only list/get for messages and get for threads. Do
+    not add send, delete, forward, draft, label-modification, archive, or
+    mark-as-read methods here.
     """
 
     def __init__(self, credentials: Credentials | None = None) -> None:
@@ -41,3 +42,11 @@ class GmailReadOnlyClient:
 
     def get_message(self, message_id: str) -> dict[str, Any]:
         return self._service.users().messages().get(userId="me", id=message_id, format="full").execute()
+
+    def get_thread(self, thread_id: str) -> dict[str, Any]:
+        return (
+            self._service.users()
+            .threads()
+            .get(userId="me", id=thread_id, format="metadata", metadataHeaders=["Date"])
+            .execute()
+        )
