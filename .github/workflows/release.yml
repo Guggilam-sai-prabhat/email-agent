@@ -1,0 +1,55 @@
+name: release
+
+# Push a tag like v1.0.0 -> draft GitHub Release with the companion installers
+# (Linux, macOS, Windows) plus the backend zip (backend + start.sh).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  companion:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+        working-directory: desktop-companion
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop-companion
+          tagName: ${{ github.ref_name }}
+          releaseName: Mail Agent ${{ github.ref_name }}
+          releaseDraft: true
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git archive --format=zip --prefix=mail-agent-backend/ \
+            -o mail-agent-backend-${{ github.ref_name }}.zip HEAD \
+            app alembic alembic.ini pyproject.toml start.sh .env.example docs README.md
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The companion job creates the draft release; wait for it, then attach.
+          for i in $(seq 1 30); do
+            gh release view "${{ github.ref_name }}" >/dev/null 2>&1 && break || sleep 10
+          done
+          gh release upload "${{ github.ref_name }}" mail-agent-backend-*.zip --clobber
