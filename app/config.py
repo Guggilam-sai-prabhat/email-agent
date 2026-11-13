@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     app_port: int = 8000
     allow_public_bind: bool = False
 
-    database_url: str = "sqlite:///./mail_agent.db"
+    # Shared secret for /api/v1 (X-API-Key); generated on first use, mode 0600.
+    api_key_file: str = ".api_key"
+
+    database_url: str ="sqlite:///./mail_agent.db"
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:1.7b"

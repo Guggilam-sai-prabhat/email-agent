@@ -37,20 +37,19 @@ app = FastAPI(
     title=settings.app_name,
     lifespan=lifespan,
     description=(
-        "Local-only manual operator API for the mail agent. No authentication is "
-        "implemented — this API must never be exposed beyond localhost/127.0.0.1. "
+        "Local-only manual operator API for the mail agent. /api/v1 requires the "
+        "X-API-Key shared secret, but this API must never be exposed beyond localhost/127.0.0.1. "
         "See README.md for the bind-address guarantees."
     ),
 )
 
-# Lets the desktop companion's webview (served from http://localhost:1420 in
-# dev, tauri://localhost in a packaged build) call this localhost-only API.
-# No authentication exists either way, so this doesn't widen what's exposed.
+# Only the desktop companion's webview may call this API from a browser
+# context: tauri://localhost (packaged) and the Tauri dev server origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^(tauri://localhost|https?://(localhost|127\.0\.0\.1)(:\d+)?)$",
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["tauri://localhost", "http://localhost:1420"],
+    allow_methods=["GET", "POST", "PATCH", "PUT"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
 app.include_router(router)

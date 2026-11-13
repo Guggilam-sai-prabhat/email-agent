@@ -2,17 +2,34 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { load } from "@tauri-apps/plugin-store";
-import { fetchDailyBrief, fetchStatus, startRun, type DailyBrief, type AgentStatus } from "./api";
+import {
+  fetchDailyBrief,
+  fetchOpenItems,
+  fetchStatus,
+  startRun,
+  type DailyBrief,
+  type AgentStatus,
+  type NagLevel,
+  type OpenItem,
+} from "./api";
 import orbIcon from "./assets/man.png";
 import "./App.css";
 
-const INTERVAL_MS = 30 * 60 * 1000;
+const DEFAULT_INTERVAL_MINUTES = 30;
 
 function countActionItems(brief: DailyBrief): number {
   return brief.urgent.length + brief.deadlines.length + brief.needs_reply.length + brief.other_action_items.length;
 }
 
+const NAG_RANK: NagLevel[] = ["quiet", "noticeable", "persistent"];
+
+function formatAge(hours: number): string {
+  return hours < 24 ? `${Math.floor(hours)}h` : `${Math.floor(hours / 24)}d`;
+}
+
 function App() {
+  const [openItems, setOpenItems] = useState<OpenItem[]>([]);
+  const notifiedRef = useRef(new Set<string>());
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [brief, setBrief] = useState<DailyBrief | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -22,18 +39,26 @@ function App() {
   async function refresh(notify: boolean) {
     setChecking(true);
     try {
-      const [s, b] = await Promise.all([fetchStatus(), fetchDailyBrief()]);
+      const [s, b, items] = await Promise.all([fetchStatus(), fetchDailyBrief(), fetchOpenItems()]);
       setStatus(s);
       setBrief(b);
+      setOpenItems(items);
       setError(null);
-      if (notify) {
-        await getCurrentWindow().show();
-        const count = countActionItems(b);
+
+      // One native notification per item (until app restart), never repeated per poll.
+      const fresh = items.filter((i) => i.nag_level !== "quiet" && !notifiedRef.current.has(i.message_id));
+      if (fresh.length > 0 || notify) await getCurrentWindow().show();
+      // Notify only when the set changes: items already notified are skipped,
+      // so an unchanged set stays silent on every poll.
+      if (fresh.length > 0) {
         const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
         if (granted) {
-          sendNotification({
-            title: "Mail Agent Companion",
-            body: count > 0 ? `${count} items need your attention` : "Inbox is clear",
+          fresh.forEach((i) => {
+            notifiedRef.current.add(i.message_id);
+            sendNotification({
+              title: "Reply overdue",
+              body: `${i.sender_address} — "${i.subject}" waiting ${formatAge(i.age_hours)}`,
+            });
           });
         }
       }
@@ -47,16 +72,22 @@ function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     refresh(false);
-    timerRef.current = setInterval(() => refresh(true), INTERVAL_MS);
 
     (async () => {
       const store = await load("companion-settings.json");
-      await store.set("interval_minutes", 30);
-      await store.save();
+      let minutes = await store.get<number>("interval_minutes");
+      if (!minutes || minutes <= 0) {
+        minutes = DEFAULT_INTERVAL_MINUTES;
+        await store.set("interval_minutes", minutes);
+        await store.save();
+      }
+      if (!cancelled) timerRef.current = setInterval(() => refresh(true), minutes * 60 * 1000);
     })();
 
     return () => {
+      cancelled = true;
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
@@ -70,27 +101,35 @@ function App() {
     await setPanel(!panelOpen);
   }
 
+  const nagLevel = openItems.reduce<NagLevel>(
+    (top, i) => (NAG_RANK.indexOf(i.nag_level) > NAG_RANK.indexOf(top) ? i.nag_level : top),
+    "quiet",
+  );
+  // Any noticeable/persistent item disables both auto-dismiss timers until it
+  // is replied/dismissed (the endpoint then stops returning it).
+  const pinned = nagLevel !== "quiet";
+
   useEffect(() => {
-    if (!panelOpen) return;
+    if (!panelOpen || pinned) return;
     const timeout = setTimeout(() => setPanel(false), 5000);
     return () => clearTimeout(timeout);
-  }, [panelOpen]);
+  }, [panelOpen, pinned]);
 
   // The orb itself auto-hides after a glance; it reappears on the next
   // scheduled refresh (or via the tray's "Show") rather than staying pinned
   // on screen between checks.
   useEffect(() => {
-    if (panelOpen) return;
+    if (panelOpen || pinned) return;
     const timeout = setTimeout(() => getCurrentWindow().hide(), 30000);
     return () => clearTimeout(timeout);
-  }, [panelOpen, brief]);
+  }, [panelOpen, brief, pinned]);
 
   async function hideWidget() {
     await getCurrentWindow().hide();
   }
 
   const actionCount = brief ? countActionItems(brief) : 0;
-  const widgetMood = error ? "error" : actionCount > 0 ? "alert" : "calm";
+  const widgetMood = error ? "error" : nagLevel !== "quiet" ? nagLevel : actionCount > 0 ? "alert" : "calm";
 
   return (
     <div className="companion">
@@ -125,6 +164,21 @@ function App() {
               <BriefSection title="Deadlines" items={brief.deadlines} />
               <BriefSection title="Needs Reply" items={brief.needs_reply} />
               <BriefSection title="Other Action Items" items={brief.other_action_items} />
+              {openItems.length > 0 && (
+                <section>
+                  <h4>Awaiting your reply</h4>
+                  <ul>
+                    {openItems.map((i) => (
+                      <li key={i.message_id}>
+                        <span className="subject">{i.subject}</span>
+                        <span className="summary">
+                          {i.sender_address} · {formatAge(i.age_hours)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
               {actionCount === 0 && <p className="empty">Nothing needs your attention right now.</p>}
             </div>
           )}

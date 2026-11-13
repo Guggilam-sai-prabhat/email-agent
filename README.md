@@ -19,6 +19,9 @@ ollama pull qwen3:1.7b
 ollama serve
 ```
 
+Swap models with `OLLAMA_MODEL` (default `qwen3:1.7b`); tested alternatives
+and eval results are in [docs/model-selection.md](docs/model-selection.md).
+
 `OLLAMA_BASE_URL` must point at a local address (`127.0.0.1`, `localhost`, or
 `::1`); the client refuses to start against anything else. If the model
 hasn't been pulled, `OllamaModelClient` raises a clear error at startup

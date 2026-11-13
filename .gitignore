@@ -11,3 +11,4 @@ token.json
 build/
 dist/
 
+.api_key

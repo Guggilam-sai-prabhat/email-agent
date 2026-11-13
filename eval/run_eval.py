@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 
 from app.agent.analysis import AnalysisFailedError, analyze_email
 from app.agent.model_client import ModelUnavailableError, OllamaModelClient
+from app.config import settings
 from app.email.sanitization import sanitize_email
 from eval.dataset import CASES, EvalCase
 
@@ -199,7 +200,7 @@ def check_acceptance(metrics: dict) -> list[str]:
 
 def print_report(results: list[CaseResult], metrics: dict, failures: list[str]) -> None:
     print("=" * 70)
-    print("EMAIL ANALYSIS EVAL — Qwen3 1.7B")
+    print(f"EMAIL ANALYSIS EVAL — {settings.ollama_model}")
     print("=" * 70)
 
     failed_cases = [r for r in results if not r.ok]

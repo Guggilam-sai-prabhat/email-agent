@@ -50,6 +50,14 @@ body,
   box-shadow: 0 0 0 3px #d8432f, 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
+.orb.noticeable {
+  box-shadow: 0 0 0 3px #f0a020, 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.orb.persistent {
+  box-shadow: 0 0 0 3px #d8432f, 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
 .orb.error {
   box-shadow: 0 0 0 3px #888, 0 4px 16px rgba(0, 0, 0, 0.35);
 }

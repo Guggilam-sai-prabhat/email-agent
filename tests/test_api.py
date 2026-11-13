@@ -9,8 +9,17 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.agent.model_client import ModelUnavailableError
-from app.api import deps as api_deps
-from app.database.models import Base, EmailAnalysis, ProcessedMessage, ProcessingRun, RunStatus, TriggerType
+from app.api import auth, deps as api_deps
+from app.database.models import (
+    Base,
+    EmailAnalysis,
+    EmailReview,
+    ProcessedMessage,
+    ProcessingRun,
+    ReviewStatus,
+    RunStatus,
+    TriggerType,
+)
 from app.database import session as db_session
 from app.email.retrieval import EmailDocument
 from app.main import app
@@ -60,8 +69,40 @@ def db():
 
 
 @pytest.fixture()
-def client(db):
-    return TestClient(app)
+def api_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(auth.settings, "api_key_file", str(tmp_path / "api_key"))
+    auth.get_api_key.cache_clear()
+    yield auth.get_api_key()
+    auth.get_api_key.cache_clear()
+
+
+@pytest.fixture()
+def client(db, api_key):
+    return TestClient(app, headers={"X-API-Key": api_key})
+
+
+def test_api_key_file_is_0600_and_stable(api_key, tmp_path):
+    path = tmp_path / "api_key"
+    assert path.stat().st_mode & 0o777 == 0o600
+    auth.get_api_key.cache_clear()
+    assert auth.get_api_key() == api_key
+
+
+@pytest.mark.parametrize("headers", [{}, {"X-API-Key": "wrong"}])
+def test_api_v1_requires_valid_api_key(db, api_key, headers):
+    anon = TestClient(app)
+    assert anon.get("/api/v1/open-items", headers=headers).status_code == 401
+    assert anon.post("/api/v1/runs", headers=headers).status_code == 401
+
+
+def test_health_needs_no_key_and_cors_is_tauri_only(db, api_key):
+    anon = TestClient(app)
+    assert anon.get("/health").status_code == 200
+    preflight = {"Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-api-key"}
+    ok = anon.options("/api/v1/status", headers={"Origin": "tauri://localhost", **preflight})
+    assert ok.headers["access-control-allow-origin"] == "tauri://localhost"
+    bad = anon.options("/api/v1/status", headers={"Origin": "http://evil.test", **preflight})
+    assert "access-control-allow-origin" not in bad.headers
 
 
 def _seed_message_with_analysis(db, **overrides) -> tuple[str, str]:
@@ -295,6 +336,39 @@ def test_open_items_excludes_replied_request(client, db, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def _brief_needs_reply_ids(client, db, monkeypatch, *, replied: bool) -> list[str]:
+    from app.api import routes as api_routes
+
+    gmail_mock = MagicMock()
+    gmail_mock.has_been_replied_to.return_value = replied
+    monkeypatch.setattr(api_routes, "GmailRetrievalService", lambda: gmail_mock)
+    response = client.get("/api/v1/daily-brief")
+    assert response.status_code == 200
+    return [i["message_id"] for i in response.json()["needs_reply"]]
+
+
+def test_daily_brief_excludes_replied_request(client, db, monkeypatch):
+    _seed_message_with_analysis(db, external_message_id="msg-1")
+
+    assert _brief_needs_reply_ids(client, db, monkeypatch, replied=True) == []
+
+
+def test_daily_brief_includes_unreplied_request(client, db, monkeypatch):
+    message_id, _ = _seed_message_with_analysis(db, external_message_id="msg-1")
+
+    assert _brief_needs_reply_ids(client, db, monkeypatch, replied=False) == [message_id]
+
+
+@pytest.mark.parametrize("status", [ReviewStatus.COMPLETED, ReviewStatus.DISMISSED])
+def test_daily_brief_excludes_closed_review_states(client, db, monkeypatch, status):
+    _, analysis_id = _seed_message_with_analysis(db, external_message_id="msg-1")
+    session = db()
+    session.add(EmailReview(email_analysis_id=analysis_id, review_status=status))
+    session.commit()
+
+    assert _brief_needs_reply_ids(client, db, monkeypatch, replied=False) == []
 
 
 def test_open_items_includes_unreplied_request_with_nag_level(client, db, monkeypatch):
@@ -651,7 +725,7 @@ def test_unhandled_exception_never_leaks_internals(client, db, monkeypatch):
 
     monkeypatch.setattr(api_routes, "_has_running_run", _boom)
 
-    unsafe_client = TestClient(app, raise_server_exceptions=False)
+    unsafe_client = TestClient(app, raise_server_exceptions=False, headers=client.headers)
     response = unsafe_client.post("/api/v1/runs")
     assert response.status_code == 500
     assert "secret" not in response.text

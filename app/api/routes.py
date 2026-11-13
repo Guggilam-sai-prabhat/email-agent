@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.analysis import PROMPT_VERSION, AnalysisFailedError, analyze_email
 from app.agent.model_client import ModelNotInstalledError, ModelUnavailableError, OllamaModelClient
+from app.api.auth import require_api_key
 from app.api.deps import get_db
 from app.api.schemas import (
     AgentStatusResponse,
@@ -47,7 +48,7 @@ from app.services.mail_processing import MailProcessingService, _sanitized_email
 
 log = structlog.get_logger()
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
 
 
 class RunAlreadyInProgressError(Exception):
@@ -195,9 +196,25 @@ def list_summaries(
 def get_daily_brief(db: Session = Depends(get_db)) -> DailyBriefResponse:
     """Local-dashboard-only aggregation of validated analyses. Never emailed
     or pushed as a notification (see app/services/daily_brief.py)."""
-    analyses = db.execute(select(EmailAnalysis).join(ProcessedMessage)).scalars().all()
-    brief = build_daily_brief(list(analyses))
+    analyses = [
+        a
+        for a in db.execute(select(EmailAnalysis).join(ProcessedMessage)).scalars().all()
+        if not a.review or a.review.review_status not in (ReviewStatus.COMPLETED, ReviewStatus.DISMISSED)
+    ]
+    replied = _replied_message_ids([a for a in analyses if a.category == "request"])
+    analyses = [a for a in analyses if a.processed_message.id not in replied]
+    brief = build_daily_brief(analyses)
     return DailyBriefResponse(**dataclasses.asdict(brief))
+
+
+def _replied_message_ids(candidates: list[EmailAnalysis]) -> set[str]:
+    retrieval = GmailRetrievalService()
+    return {
+        a.processed_message.id
+        for a in candidates
+        if a.processed_message.external_thread_id
+        and retrieval.has_been_replied_to(a.processed_message.external_thread_id, after=a.processed_message.received_at)
+    }
 
 
 @router.get("/open-items", response_model=list[OpenItemResponse])
@@ -207,15 +224,7 @@ def get_open_items(db: Session = Depends(get_db)) -> list[OpenItemResponse]:
     analyses = db.execute(select(EmailAnalysis).join(ProcessedMessage)).scalars().all()
     candidates = [a for a in analyses if a.category == "request"]
 
-    retrieval = GmailRetrievalService()
-    replied_message_ids = {
-        a.processed_message.id
-        for a in candidates
-        if a.processed_message.external_thread_id
-        and retrieval.has_been_replied_to(a.processed_message.external_thread_id, after=a.processed_message.received_at)
-    }
-
-    items = build_open_items(candidates, replied_message_ids=replied_message_ids)
+    items = build_open_items(candidates, replied_message_ids=_replied_message_ids(candidates))
     return [
         OpenItemResponse(
             message_id=item.message_id,
