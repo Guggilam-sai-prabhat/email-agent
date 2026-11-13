@@ -29,6 +29,8 @@ class RunStatusResponse(BaseModel):
     processed_count: int
     skipped_count: int
     failed_count: int
+    truncated: bool
+    unscanned_count: int
 
 
 class SummaryListItem(BaseModel):
@@ -104,6 +106,9 @@ class AgentStatusResponse(BaseModel):
     gmail_authorized: bool
     run_in_progress: bool
     last_successful_run_at: datetime | None
+    # From the last completed run: older emails the per-run cap left unscanned.
+    truncated: bool = False
+    unscanned_count: int = 0
 
 
 class ReviewStatusUpdateRequest(BaseModel):

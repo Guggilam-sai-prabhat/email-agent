@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -225,4 +226,8 @@ class ProcessingRun(Base):
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The per-run cap (gmail_unlabeled_message_limit / email_max_messages_per_run)
+    # left older matching emails unscanned.
+    truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    unscanned_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

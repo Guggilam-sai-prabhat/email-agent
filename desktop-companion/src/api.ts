@@ -29,6 +29,8 @@ export interface AgentStatus {
   run_in_progress: boolean;
   last_successful_run_at: string | null;
 }
+  truncated: boolean;
+  unscanned_count: number;
 
 export type NagLevel = "quiet" | "noticeable" | "persistent";
 

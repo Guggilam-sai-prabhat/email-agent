@@ -62,6 +62,7 @@ class MailProcessingService:
                 session.commit()
 
         candidate_ids = self._gmail.list_candidate_message_ids()
+        unscanned = self._gmail.unscanned_count
 
         discovered = len(candidate_ids)
         processed = skipped = failed = 0
@@ -90,6 +91,8 @@ class MailProcessingService:
             run.processed_count = processed
             run.skipped_count = skipped
             run.failed_count = failed
+            run.unscanned_count = unscanned
+            run.truncated = unscanned > 0
             run_repo.complete(run, datetime.now(timezone.utc), status=RunStatus.COMPLETED)
             return run
 

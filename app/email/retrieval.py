@@ -28,6 +28,9 @@ log = structlog.get_logger()
 # HTTP statuses worth retrying: rate limit and transient server errors.
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 3
+# Gmail's max page size. ponytail: one page, so counts beyond it are undercounted;
+# page through with nextPageToken if exact totals matter.
+_COUNT_CEILING = 500
 _BASE_BACKOFF_SECONDS = 1.0
 
 
@@ -192,6 +195,8 @@ class GmailRetrievalService:
 
     def __init__(self, client: GmailReadOnlyClient | None = None) -> None:
         self._client = client or GmailReadOnlyClient()
+        # Matching messages beyond the per-run cap in the last list call.
+        self.unscanned_count = 0
 
     def list_candidate_message_ids(self) -> list[str]:
         """IDs of messages eligible for analysis: recent, capped per run, and
@@ -207,14 +212,19 @@ class GmailRetrievalService:
         else:
             query = f"in:inbox {query}"
             max_results = settings.gmail_unlabeled_message_limit
+        # List up to a page of ids (cheap, ids only) so we can count what the cap
+        # leaves behind. Gmail returns newest first, so the unscanned are older.
+        self.unscanned_count = 0
         try:
-            return _with_retry(
-                lambda: self._client.list_message_ids(query=query, max_results=max_results),
+            ids = _with_retry(
+                lambda: self._client.list_message_ids(query=query, max_results=max(max_results, _COUNT_CEILING)),
                 log_event="gmail_list_retry",
             )
         except HttpError as exc:
             log.error("gmail_list_failed", status=getattr(exc, "status_code", None))
             return []
+        self.unscanned_count = max(len(ids) - max_results, 0)
+        return ids[:max_results]
 
     def get_message_for_analysis(self, message_id: str) -> EmailDocument | None:
         """Fetch and parse one message. Returns None if it's unavailable after retries."""

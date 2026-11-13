@@ -100,19 +100,21 @@ def _run_in_background(run_id: str) -> None:
 @router.get("/status", response_model=AgentStatusResponse)
 def get_status(db: Session = Depends(get_db)) -> AgentStatusResponse:
     last_run_stmt = (
-        select(ProcessingRun.completed_at)
+        select(ProcessingRun)
         .where(ProcessingRun.status == RunStatus.COMPLETED)
         .order_by(ProcessingRun.completed_at.desc())
         .limit(1)
     )
-    last_successful_run_at = db.execute(last_run_stmt).scalar_one_or_none()
+    last_run = db.execute(last_run_stmt).scalar_one_or_none()
 
     return AgentStatusResponse(
         model_available=OllamaModelClient().is_ready(),
         model_name=settings.ollama_model,
         gmail_authorized=has_stored_token(),
         run_in_progress=_has_running_run(db),
-        last_successful_run_at=last_successful_run_at,
+        last_successful_run_at=last_run.completed_at if last_run else None,
+        truncated=last_run.truncated if last_run else False,
+        unscanned_count=last_run.unscanned_count if last_run else 0,
     )
 
 

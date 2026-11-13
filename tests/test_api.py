@@ -160,6 +160,29 @@ def test_get_status_reports_model_gmail_and_last_run(client, db, monkeypatch):
     assert body["last_successful_run_at"] is not None
 
 
+def test_status_reports_unscanned_count_from_last_completed_run(client, db, monkeypatch):
+    from app.api import routes as api_routes
+
+    monkeypatch.setattr(api_routes.OllamaModelClient, "is_ready", lambda self: True)
+    monkeypatch.setattr(api_routes, "has_stored_token", lambda: True)
+    session = db()
+    session.add(
+        ProcessingRun(
+            trigger_type=TriggerType.MANUAL,
+            status=RunStatus.COMPLETED,
+            completed_at=datetime.now(timezone.utc),
+            truncated=True,
+            unscanned_count=7,
+        )
+    )
+    session.commit()
+
+    body = client.get("/api/v1/status").json()
+
+    assert body["truncated"] is True
+    assert body["unscanned_count"] == 7
+
+
 def test_get_status_reports_model_unavailable_and_no_gmail_token(client, db, monkeypatch):
     from app.api import routes as api_routes
 
@@ -276,6 +299,7 @@ def test_start_run_does_not_leave_an_orphaned_running_row_after_it_completes(cli
 
     gmail_mock = MagicMock()
     gmail_mock.list_candidate_message_ids.return_value = []
+    gmail_mock.unscanned_count = 0
     monkeypatch.setattr(mail_processing_module, "GmailRetrievalService", lambda: gmail_mock)
     monkeypatch.setattr(mail_processing_module, "get_session", api_routes.get_session)
     monkeypatch.setattr(api_routes, "OllamaModelClient", lambda: MagicMock())

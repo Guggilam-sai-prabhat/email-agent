@@ -101,6 +101,7 @@ class FakeGmailService:
     def __init__(self, documents: dict[str, EmailDocument | None], candidate_ids: list[str] | None = None):
         self._documents = documents
         self._candidate_ids = candidate_ids if candidate_ids is not None else list(documents.keys())
+        self.unscanned_count = 0
 
     def list_candidate_message_ids(self) -> list[str]:
         return list(self._candidate_ids)
@@ -298,3 +299,24 @@ def test_no_candidate_messages_completes_run_with_zero_counts():
     assert run.processed_count == 0
     assert run.skipped_count == 0
     assert run.failed_count == 0
+
+
+def test_run_records_truncation_when_cap_left_emails_unscanned(get_session):
+    gmail = FakeGmailService({"msg-1": _document()})
+    gmail.unscanned_count = 4
+    service = MailProcessingService(model_client=_model_client(json.dumps(_valid_payload())), gmail_service=gmail)
+
+    run = service.run()
+
+    assert run.truncated is True
+    assert run.unscanned_count == 4
+
+
+def test_run_is_not_truncated_by_default(get_session):
+    gmail = FakeGmailService({"msg-1": _document()})
+    service = MailProcessingService(model_client=_model_client(json.dumps(_valid_payload())), gmail_service=gmail)
+
+    run = service.run()
+
+    assert run.truncated is False
+    assert run.unscanned_count == 0
