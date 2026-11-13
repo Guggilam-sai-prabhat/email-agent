@@ -162,3 +162,8 @@ class OpenItemResponse(BaseModel):
     received_at: datetime
     age_hours: float
     nag_level: NagLevel
+    gmail_url: str | None = None
+
+
+class GmailCredentialsUpload(BaseModel):
+    content: str = Field(max_length=10_000)

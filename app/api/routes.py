@@ -294,6 +294,7 @@ def update_review_status(
     db.commit()
 
     return ReviewInfo(
+            gmail_url=item.gmail_url,
         review_status=review.review_status,
         reviewed_at=review.reviewed_at,
         completed_at=review.completed_at,

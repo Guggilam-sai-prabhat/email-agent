@@ -30,6 +30,12 @@ class OpenItem:
     received_at: datetime
     age: timedelta
     nag_level: NagLevel
+    thread_id: str | None = None
+
+    @property
+    def gmail_url(self) -> str | None:
+        # Plain link into the Gmail web UI; no API call, no extra scope.
+        return f"https://mail.google.com/mail/u/0/#inbox/{self.thread_id}" if self.thread_id else None
 
 
 def _nag_level(age: timedelta) -> NagLevel:
@@ -71,6 +77,7 @@ def build_open_items(
                 received_at=message.received_at,
                 age=age,
                 nag_level=_nag_level(age),
+                thread_id=message.external_thread_id,
             )
         )
 

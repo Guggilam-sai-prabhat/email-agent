@@ -42,6 +42,7 @@ export interface OpenItem {
   age_hours: number;
   nag_level: NagLevel;
 }
+  gmail_url: string | null;
 
 // The shared secret lives in companion-settings.json under "api_key" (copy it
 // from the backend's .api_key file once).

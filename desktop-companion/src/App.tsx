@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { load } from "@tauri-apps/plugin-store";
 import {
   fetchDailyBrief,
@@ -197,6 +198,14 @@ function BriefSection({ title, items }: { title: string; items: DailyBrief["urge
         {items.map((item) => (
           <li key={item.message_id}>
             <span className="subject">{item.subject}</span>
+                          {i.gmail_url && (
+                            <>
+                              {" · "}
+                              <a href={i.gmail_url} onClick={(e) => { e.preventDefault(); openUrl(i.gmail_url!); }}>
+                                Open in Gmail
+                              </a>
+                            </>
+                          )}
             <span className="summary">{item.summary}</span>
           </li>
         ))}

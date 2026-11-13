@@ -414,6 +414,19 @@ def test_open_items_includes_unreplied_request_with_nag_level(client, db, monkey
     gmail_mock.has_been_replied_to.assert_called_once()
 
 
+def test_open_items_include_gmail_link_from_stored_thread_id(client, db, monkeypatch):
+    from app.api import routes as api_routes
+
+    _seed_message_with_analysis(db, external_message_id="msg-1")  # thread-1
+    gmail_mock = MagicMock()
+    gmail_mock.has_been_replied_to.return_value = False
+    monkeypatch.setattr(api_routes, "GmailRetrievalService", lambda: gmail_mock)
+
+    items = client.get("/api/v1/open-items").json()
+
+    assert items[0]["gmail_url"] == "https://mail.google.com/mail/u/0/#inbox/thread-1"
+
+
 def test_open_items_excludes_non_request_category(client, db, monkeypatch):
     from app.api import routes as api_routes
 
