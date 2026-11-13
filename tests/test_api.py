@@ -769,3 +769,28 @@ def test_unhandled_exception_never_leaks_internals(client, db, monkeypatch):
     assert "RuntimeError" not in response.text
     body = response.json()
     assert body["error"] == "internal_error"
+
+
+def test_upload_gmail_credentials_validates_and_writes_0600(client, tmp_path, monkeypatch):
+    path = tmp_path / "credentials.json"
+    monkeypatch.setattr("app.api.routes.settings.gmail_credentials_file", str(path))
+
+    bad = client.put("/api/v1/settings/gmail-credentials", json={"content": '{"web": {}}'})
+    assert bad.status_code == 422 and not path.exists()
+
+    good = '{"installed": {"client_id": "a", "client_secret": "b"}}'
+    assert client.put("/api/v1/settings/gmail-credentials", json={"content": good}).status_code == 204
+    assert path.read_text() == good and path.stat().st_mode & 0o777 == 0o600
+
+
+def test_gmail_connect_requires_credentials_first(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("app.api.routes.settings.gmail_credentials_file", str(tmp_path / "missing.json"))
+    assert client.post("/api/v1/settings/gmail-connect").status_code == 409
+
+
+def test_setup_checks_lists_every_requirement(client, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    checks = {c["id"]: c for c in client.get("/api/v1/setup/checks").json()}
+    assert set(checks) == {"disk", "ollama_installed", "ollama_running", "model", "gmail_credentials", "gmail_connected"}
+    assert checks["ollama_installed"]["ok"] is False and checks["ollama_installed"]["fix"]
+    assert client.post("/api/v1/setup/pull-model").status_code == 409

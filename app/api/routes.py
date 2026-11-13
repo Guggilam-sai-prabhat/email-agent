@@ -5,11 +5,16 @@ and app/config.py for ALLOW_PUBLIC_BIND. No authentication (see README).
 from __future__ import annotations
 
 import dataclasses
+import json
+import os
+import shutil
+import subprocess
 import threading
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,6 +25,7 @@ from app.api.deps import get_db
 from app.api.schemas import (
     AgentStatusResponse,
     DailyBriefResponse,
+    GmailCredentialsUpload,
     OpenItemResponse,
     ReprocessResponse,
     ReviewInfo,
@@ -31,7 +37,7 @@ from app.api.schemas import (
     SummaryFilters,
     SummaryPage,
 )
-from app.auth.gmail_auth import has_stored_token
+from app.auth.gmail_auth import get_credentials, has_stored_token
 from app.config import settings
 from app.database.models import EmailAnalysis, ProcessedMessage, ProcessingRun, ReviewStatus, RunStatus, TriggerType
 from app.database.repository import (
@@ -44,6 +50,7 @@ from app.database.session import get_session
 from app.email.retrieval import GmailRetrievalService, MessageUnavailableError
 from app.services.daily_brief import build_daily_brief
 from app.services.open_items import build_open_items
+from app.services.setup_checks import run_checks
 from app.services.mail_processing import MailProcessingService, _sanitized_email_from_document
 
 log = structlog.get_logger()
@@ -116,6 +123,58 @@ def get_status(db: Session = Depends(get_db)) -> AgentStatusResponse:
         truncated=last_run.truncated if last_run else False,
         unscanned_count=last_run.unscanned_count if last_run else 0,
     )
+
+
+@router.get("/setup/checks")
+def setup_checks() -> list[dict]:
+    return [dataclasses.asdict(c) for c in run_checks()]
+
+
+@router.post("/setup/pull-model", status_code=202)
+def pull_model() -> dict[str, str]:
+    """Downloads the configured model via the Ollama CLI (explicit user click only,
+    never automatic); poll /setup/checks for the "model" check to turn ok."""
+    if shutil.which("ollama") is None:
+        raise HTTPException(status_code=409, detail="Ollama is not installed")
+    subprocess.Popen(
+        ["ollama", "pull", settings.ollama_model], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    return {"status": "downloading"}
+
+
+@router.put("/settings/gmail-credentials", status_code=204)
+def upload_gmail_credentials(body: GmailCredentialsUpload) -> None:
+    """Stores the client's Google OAuth client file (the "Desktop app" credentials.json).
+    It identifies the OAuth client, not a user; the user's own token is created by
+    /settings/gmail-connect."""
+    try:
+        installed = json.loads(body.content)["installed"]
+        installed["client_id"], installed["client_secret"]
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=422, detail='not a Google "Desktop app" credentials.json (missing "installed" client)'
+        )
+    path = Path(settings.gmail_credentials_file)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(body.content)
+
+
+@router.post("/settings/gmail-connect", status_code=202)
+def connect_gmail() -> dict[str, str]:
+    """Opens the browser consent flow on the machine running the backend; poll
+    /status.gmail_authorized to see it finish."""
+    if not Path(settings.gmail_credentials_file).exists():
+        raise HTTPException(status_code=409, detail="upload credentials.json first")
+
+    def _connect() -> None:
+        try:
+            get_credentials()
+        except Exception as exc:
+            log.error("gmail_connect_failed", exception_type=type(exc).__name__)
+
+    threading.Thread(target=_connect, daemon=True).start()
+    return {"status": "waiting_for_browser"}
 
 
 @router.post("/runs", response_model=RunStartResponse, status_code=202)
@@ -235,6 +294,7 @@ def get_open_items(db: Session = Depends(get_db)) -> list[OpenItemResponse]:
             received_at=item.received_at,
             age_hours=item.age.total_seconds() / 3600,
             nag_level=item.nag_level,
+            gmail_url=item.gmail_url,
         )
         for item in items
     ]
@@ -294,7 +354,6 @@ def update_review_status(
     db.commit()
 
     return ReviewInfo(
-            gmail_url=item.gmail_url,
         review_status=review.review_status,
         reviewed_at=review.reviewed_at,
         completed_at=review.completed_at,
