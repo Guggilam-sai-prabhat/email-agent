@@ -185,3 +185,11 @@ body,
   color: #9aa0aa;
   text-align: center;
 }
+
+.settings section { margin-bottom: 12px; }
+.settings input { display: block; width: 100%; margin: 4px 0; box-sizing: border-box; }
+.settings button { margin: 2px 4px 2px 0; }
+.settings .hint { font-size: 11px; opacity: 0.75; margin: 2px 0; padding-left: 0; }
+.settings ol.hint { padding-left: 16px; }
+.settings .checks { list-style: none; padding: 0; margin: 4px 0; font-size: 12px; }
+.panel-body.settings { max-height: 390px; overflow-y: auto; }

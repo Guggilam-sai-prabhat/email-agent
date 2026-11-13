@@ -6,7 +6,9 @@ import { load } from "@tauri-apps/plugin-store";
 import {
   fetchDailyBrief,
   fetchOpenItems,
+  fetchSetupChecks,
   fetchStatus,
+  getStoreValue,
   startRun,
   type DailyBrief,
   type AgentStatus,
@@ -14,6 +16,7 @@ import {
   type OpenItem,
 } from "./api";
 import orbIcon from "./assets/man.png";
+import Settings from "./Settings";
 import "./App.css";
 
 const DEFAULT_INTERVAL_MINUTES = 30;
@@ -36,6 +39,12 @@ function App() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [agentImage, setAgentImage] = useState<string | null>(null);
+
+  async function loadImage() {
+    setAgentImage((await getStoreValue("agent_image")) ?? null);
+  }
 
   async function refresh(notify: boolean) {
     setChecking(true);
@@ -75,6 +84,16 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     refresh(false);
+    loadImage();
+    // First run (or anything missing): open the setup wizard instead of the brief.
+    fetchSetupChecks()
+      .then((checks) => {
+        if (checks.some((c) => !c.ok)) {
+          setShowSettings(true);
+          setPanel(true);
+        }
+      })
+      .catch(() => {});
 
     (async () => {
       const store = await load("companion-settings.json");
@@ -111,10 +130,10 @@ function App() {
   const pinned = nagLevel !== "quiet";
 
   useEffect(() => {
-    if (!panelOpen || pinned) return;
+    if (!panelOpen || pinned || showSettings) return;
     const timeout = setTimeout(() => setPanel(false), 5000);
     return () => clearTimeout(timeout);
-  }, [panelOpen, pinned]);
+  }, [panelOpen, pinned, showSettings]);
 
   // The orb itself auto-hides after a glance; it reappears on the next
   // scheduled refresh (or via the tray's "Show") rather than staying pinned
@@ -140,15 +159,16 @@ function App() {
         title={error ?? (status ? `Model: ${status.model_available ? "ready" : "unavailable"}` : "Loading...")}
         data-tauri-drag-region
       >
-        <img src={orbIcon} alt="" className="orb-icon" />
+        <img src={agentImage ?? orbIcon} alt="" className="orb-icon" />
         {actionCount > 0 && <span className="badge">{actionCount}</span>}
       </button>
 
       {panelOpen && (
         <div className="panel">
           <div className="panel-header" data-tauri-drag-region>
-            <span>Daily Brief</span>
+            <span>{showSettings ? "Setup" : "Daily Brief"}</span>
             <div className="panel-actions">
+              <button onClick={() => setShowSettings(!showSettings)} title="Settings">⚙</button>
               <button onClick={() => refresh(false)} disabled={checking}>
                 ⟳
               </button>
@@ -157,9 +177,13 @@ function App() {
             </div>
           </div>
 
-          {error && <div className="panel-error">{error}</div>}
+          {showSettings && (
+            <Settings onChanged={() => { loadImage(); refresh(false); }} onDone={() => setShowSettings(false)} />
+          )}
+          {error && !showSettings && <div className="panel-error">{error}</div>}
+          {status?.truncated && <p className="empty">{status.unscanned_count} older emails not scanned</p>}
 
-          {brief && (
+          {brief && !showSettings && (
             <div className="panel-body">
               <BriefSection title="Urgent" items={brief.urgent} />
               <BriefSection title="Deadlines" items={brief.deadlines} />
@@ -174,6 +198,14 @@ function App() {
                         <span className="subject">{i.subject}</span>
                         <span className="summary">
                           {i.sender_address} · {formatAge(i.age_hours)}
+                          {i.gmail_url && (
+                            <>
+                              {" · "}
+                              <a href={i.gmail_url} onClick={(e) => { e.preventDefault(); openUrl(i.gmail_url!); }}>
+                                Open in Gmail
+                              </a>
+                            </>
+                          )}
                         </span>
                       </li>
                     ))}
@@ -198,14 +230,6 @@ function BriefSection({ title, items }: { title: string; items: DailyBrief["urge
         {items.map((item) => (
           <li key={item.message_id}>
             <span className="subject">{item.subject}</span>
-                          {i.gmail_url && (
-                            <>
-                              {" · "}
-                              <a href={i.gmail_url} onClick={(e) => { e.preventDefault(); openUrl(i.gmail_url!); }}>
-                                Open in Gmail
-                              </a>
-                            </>
-                          )}
             <span className="summary">{item.summary}</span>
           </li>
         ))}
