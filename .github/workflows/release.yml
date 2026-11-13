@@ -38,18 +38,15 @@ jobs:
           releaseDraft: true
 
   backend:
+    needs: companion
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: |
           git archive --format=zip --prefix=mail-agent-backend/ \
             -o mail-agent-backend-${{ github.ref_name }}.zip HEAD \
-            app alembic alembic.ini pyproject.toml start.sh .env.example docs README.md
-      - env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # The companion job creates the draft release; wait for it, then attach.
-          for i in $(seq 1 30); do
-            gh release view "${{ github.ref_name }}" >/dev/null 2>&1 && break || sleep 10
-          done
-          gh release upload "${{ github.ref_name }}" mail-agent-backend-*.zip --clobber
+            app alembic alembic.ini pyproject.toml start.sh start.bat .env.example docs README.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: mail-agent-backend-${{ github.ref_name }}.zip
