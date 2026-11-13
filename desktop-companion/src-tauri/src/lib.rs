@@ -4,9 +4,19 @@ use tauri::{
     Manager,
 };
 
+/// The backend creates this file at startup (same path as its api_key_file default),
+/// so the user never has to copy the key by hand.
+#[tauri::command]
+fn read_api_key() -> Option<String> {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    let path = std::path::Path::new(&home).join(".config/mail-agent/api_key");
+    std::fs::read_to_string(path).ok().map(|k| k.trim().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![read_api_key])
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
 
 const BASE_URL = "http://127.0.0.1:8000";
@@ -44,12 +45,12 @@ export interface OpenItem {
 }
   gmail_url: string | null;
 
-// The shared secret lives in companion-settings.json under "api_key" (copy it
-// from the backend's .api_key file once).
+// The shared secret is read from the backend's key file by the Rust side (read_api_key);
+// a manual "api_key" in companion-settings.json still takes precedence.
 async function authHeaders(): Promise<HeadersInit> {
   const store = await load("companion-settings.json");
-  const key = await store.get<string>("api_key");
-  if (!key) throw new Error('Set "api_key" in companion-settings.json (see backend .api_key)');
+  const key = (await store.get<string>("api_key")) ?? (await invoke<string | null>("read_api_key"));
+  if (!key) throw new Error("Backend not started yet (no API key file found). Start the Mail Agent backend.");
   return { "X-API-Key": key };
 }
 

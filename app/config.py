@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     allow_public_bind: bool = False
 
     # Shared secret for /api/v1 (X-API-Key); generated on first use, mode 0600.
-    api_key_file: str = ".api_key"
+    api_key_file: str = "~/.config/mail-agent/api_key"  # companion app reads this same path
 
     database_url: str ="sqlite:///./mail_agent.db"
 

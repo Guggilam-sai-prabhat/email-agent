@@ -13,6 +13,7 @@ from app.api.routes import (
     RunAlreadyInProgressError,
     router,
 )
+from app.api.auth import get_api_key
 from app.auth.gmail_auth import validate_stored_token_scopes
 from app.config import settings
 from app.logging_config import configure_logging
@@ -25,6 +26,7 @@ log = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     validate_stored_token_scopes()
+    get_api_key()  # create it now so the companion can read it before any request
     log.info("app_startup", environment=settings.app_env)
     start_scheduler()
     try:
