@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Mail Agent</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --muted:#666; --accent:#0a7; --line:#ddd; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14161b; --fg:#eee; --muted:#9aa; --line:#333; } }
+  body { background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; margin:0; padding:24px 16px; }
+  main { max-width:560px; margin:0 auto; }
+  h1 { margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 24px; }
+  .btn { display:block; text-align:center; background:var(--accent); color:#fff; padding:14px; border-radius:8px; text-decoration:none; font-weight:600; }
+  .btn[aria-disabled=true] { opacity:.5; pointer-events:none; }
+  ol { padding-left:20px; } li { margin:6px 0; }
+  .muted { color:var(--muted); font-size:14px; }
+  details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mail Agent</h1>
+  <p class="sub">Private inbox watchdog. Your email never leaves your computer.</p>
+
+  <h2>1. Download the app</h2>
+  <a id="main" class="btn" aria-disabled="true">Looking for your download…</a>
+  <p id="detected" class="muted"></p>
+
+  <h2>2. Download the backend</h2>
+  <a id="backend" class="btn" aria-disabled="true">Looking for your download…</a>
+
+  <h2>3. Start it</h2>
+  <ol>
+    <li>Unzip the backend, then run <code>./start.sh</code> (Mac/Linux) in that folder. The first run takes a few minutes.</li>
+    <li>Install the app from step 1, then open it. A setup wizard checks your computer and guides you through the rest.</li>
+  </ol>
+
+  <details><summary>Other downloads</summary><ul id="all"></ul></details>
+</main>
+
+<script>
+// ponytail: UA sniffing, can't tell Apple Silicon from Intel; both .dmg builds are offered under "Other downloads".
+const REPO = "Guggilam-sai-prabhat/email-agent";
+
+function detectOs() {
+  const ua = navigator.userAgent;
+  if (/Windows/i.test(ua)) return { name: "Windows", pick: [/\.msi$/i, /setup\.exe$/i, /\.exe$/i] };
+  if (/Mac/i.test(ua)) return { name: "macOS", pick: [/\.dmg$/i] };
+  if (/Linux|X11/i.test(ua)) return { name: "Linux", pick: [/\.AppImage$/i, /\.deb$/i] };
+  return { name: null, pick: [] };
+}
+
+(async () => {
+  const main = document.getElementById("main");
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+    if (!res.ok) throw new Error(res.status);
+    const { assets, tag_name } = await res.json();
+
+    const os = detectOs();
+    const hit = os.pick.map((re) => assets.find((a) => re.test(a.name))).find(Boolean);
+    if (hit) {
+      main.href = hit.browser_download_url;
+      main.textContent = `Download for ${os.name} (${tag_name})`;
+      main.removeAttribute("aria-disabled");
+      document.getElementById("detected").textContent = `We detected ${os.name}. Not right? See "Other downloads".`;
+    } else {
+      main.textContent = "Choose your system under “Other downloads”";
+    }
+
+    const zip = assets.find((a) => /backend.*\.zip$/i.test(a.name));
+    const backend = document.getElementById("backend");
+    if (zip) { backend.href = zip.browser_download_url; backend.textContent = "Download backend"; backend.removeAttribute("aria-disabled"); }
+    else backend.textContent = "Backend not found in this release";
+
+    document.getElementById("all").innerHTML = assets
+      .map((a) => `<li><a href="${a.browser_download_url}">${a.name.replace(/[<>&]/g, "")}</a></li>`).join("");
+  } catch {
+    main.textContent = "Couldn't load downloads. Ask your installer for the files.";
+  }
+})();
+</script>
+</body>
+</html>
